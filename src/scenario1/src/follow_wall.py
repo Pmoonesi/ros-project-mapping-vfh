@@ -17,49 +17,14 @@ class PIDController():
         
         rospy.init_node('wall_follower', anonymous=False)
         rospy.on_shutdown(self.on_shutdown)
-
         self.mode = rospy.get_param("/follow_wall/mode")
-
-        if self.mode == "test":
     
-            self.k_i = 0
-            self.k_p = 0.6
-            self.k_d = 7
-    
-            self.v = 0.6
-            self.D = 2
+        self.k_i = 0
+        self.k_p = 3
+        self.k_d = 22
 
-        elif self.mode == "a":
-    
-            self.k_i = 0
-            self.k_p = 0.8
-            self.k_d = 10
-    
-            self.v = 0.4
-            self.D = 1
-
-        elif self.mode == "b":
-
-            self.k_i = 0.0
-            self.k_p = 1.5
-            self.k_d = 20
-    
-            self.v = 0.2
-            self.D = 0.5
-
-        elif self.mode == "c":
-
-            self.k_i = 0.0
-            self.k_p = 1.5
-            self.k_d = 15
-    
-            self.v = 0.3
-            self.D = 0.5
-
-            self.goalx = 3
-            self.goaly = -1
-        else:
-            pass
+        self.v = 0.2
+        self.D = 0.5
 
         self.dt = 0.005
         rate = 1/self.dt
@@ -67,6 +32,20 @@ class PIDController():
         self.r = rospy.Rate(rate)
         self.cmd_vel = rospy.Publisher('/cmd_vel', Twist, queue_size=5)
         self.errs = []
+
+    def reach_a_wall(self):
+        go = Twist()
+        go.angular.z = 0
+        go.linear.x = self.v
+        stop = Twist()
+        laser_data = rospy.wait_for_message("/scan", LaserScan)
+        d = self.distance_from_wall(laser_data)
+        while (d > self.D + 0.15):
+            self.cmd_vel.publish(go)
+            laser_data = rospy.wait_for_message("/scan", LaserScan)
+            d = self.distance_from_wall(laser_data)
+        self.cmd_vel.publish(stop)          
+
 
     def distance_to_goal(self, odom_data):
         position = odom_data.pose.pose.position
@@ -135,40 +114,8 @@ class PIDController():
 
             laser_data = rospy.wait_for_message("/scan", LaserScan)
             odom_data = rospy.wait_for_message("/odom", Odometry)
-
-            if self.mode == "c" and self.distance_to_goal(odom_data) < 0.2:
-                rospy.signal_shutdown("goal is reached")
-
-            if self.mode == "c":
-                gh = self.goal_heading(odom_data)
-                ch = self.current_heading(odom_data)
-                diff = self.angle_difference(ch, gh)
-                l, r = self.window_interval(diff, 20)
-                reachable = self.is_window_clear(l, r, laser_data, odom_data)
-            else:
-                reachable = False
-
-            if reachable:
-                stop = Twist()
-                self.cmd_vel.publish(stop)
-
-                while abs(diff) > 0.1:
-                    rotation = Twist()
-                    rotation.angular.z = 0.1 if diff > 0 else -0.1
-                    self.cmd_vel.publish(rotation)
-                    odom_data = rospy.wait_for_message("/odom", Odometry)
-                    new_ch = self.current_heading(odom_data)
-                    new_gh = self.goal_heading(odom_data)
-                    diff = self.angle_difference(new_ch, new_gh)
-                
-                self.cmd_vel.publish(stop)
-                go = Twist()
-                go.linear.x = 0.05
-                self.cmd_vel.publish(go)
-                continue
             
-            ## ELSE
-            if self.mode == "test" or self.mode == "a":
+            if self.mode == "a":
                 d = self.distance_from_wall(laser_data)    
                 err = d - self.D
             else:
@@ -189,7 +136,7 @@ class PIDController():
             move_cmd.angular.z = P + I + D 
             prev_theta_error = err
             
-            if self.mode == "test" or self.mode == "a":
+            if self.mode == "a":
                 move_cmd.linear.x = self.v          
             else:
                 if f < self.D:
@@ -216,6 +163,7 @@ class PIDController():
 if __name__ == '__main__':
     try:
         pidc = PIDController()
+        pidc.reach_a_wall()
         pidc.follow_wall()
     except rospy.ROSInterruptException:
         rospy.loginfo("Navigation terminated.")
