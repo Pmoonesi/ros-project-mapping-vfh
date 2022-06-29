@@ -1,6 +1,11 @@
 activate
 .vscode
 turtlebot*/
+src/geometry2
+src/navigation
+src/navigation_msgs
+src/openslam_gmapping
+src/slam_gmapping
 
 # Created by https://www.toptal.com/developers/gitignore/api/ros,ros2
 # Edit at https://www.toptal.com/developers/gitignore?templates=ros,ros2
