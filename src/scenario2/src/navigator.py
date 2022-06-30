@@ -26,12 +26,13 @@ class NavigationController():
         self.k_p = 1
         self.k_d = 10
         self.v = 0.2
+        self.w = 0.1
 
         ## vfh params
         self.a = 1
         self.b = 0.25
-        self.threshold = 2.5
-        self.s_max = 6
+        self.threshold = 1
+        self.s_max = 12
         self.l = 2
         self.sector_size = 5
 
@@ -108,6 +109,7 @@ class NavigationController():
 
 
     def get_goal_heading_vfh(self, laser_data: LaserScan, odom_data: Odometry):
+        print("were here too")
         ranges = laser_data.ranges
         m_ranges = self.get_range_values(ranges)
         density = self.get_polar_density(m_ranges, self.sector_size)
@@ -116,11 +118,14 @@ class NavigationController():
         target_heading = self.get_relative_target_heading(odom_data, self.goal_x, self.goal_y)
         target_sector = self.get_target_sector(target_heading, self.sector_size)
 
+        print(f'target sector: {target_sector} density: {smooth[target_sector]}')
+
         if smooth[target_sector] < self.threshold:
-            return target_heading
+            return target_heading, smooth[target_sector]
 
         if all(density >= self.threshold for density in smooth) == True:
-            return target_heading
+            print("threshold alert")
+            return target_heading, self.threshold
 
         ## select best heading
         le = len(smooth)
@@ -148,7 +153,7 @@ class NavigationController():
         final_sector = ((dn + df) / 2 - 0.5) % le
         final_heading = self.get_relative_final_heading(final_sector, self.sector_size)
         print(f'relative target: {target_heading}\tfinal relative target: {final_heading}')
-        return final_heading
+        return final_heading, smooth[int(final_sector)]
         
 
     def navigate(self):
@@ -158,27 +163,43 @@ class NavigationController():
 
         move_cmd = Twist()
         move_cmd.angular.z = 0
-        move_cmd.linear.x = self.v
+
+        stop = Twist()
+        stop.angular.z = 0
+        stop.linear.x = 0
+
+        rotate_cmd = Twist()
+        rotate_cmd.linear.x = 0
         
         while not rospy.is_shutdown():
-            self.cmd_vel.publish(move_cmd)
+            self.cmd_vel.publish(stop)
 
             laser_data = rospy.wait_for_message("/scan", LaserScan)
             odom_data = rospy.wait_for_message("/odom", Odometry)
 
-            err = self.get_goal_heading_vfh(laser_data, odom_data)
+            ## rotate
+            print("were defo here")
+            err, density = self.get_goal_heading_vfh(laser_data, odom_data)
+            last_heading = self.get_current_heading(odom_data)
 
-            self.heading_errors.append(err)
-                
-            sum_i_theta += err * self.dt
-            
-            P = self.k_p * err
-            I = self.k_i * sum_i_theta
-            D = self.k_d * (err - prev_theta_error)
+            while abs(err) > 0.25:
+                rotate_cmd.angular.z = self.w if err > 0 else -self.w
+                print(f"error is {err} so we're rotating with {rotate_cmd.angular.z}")
+                self.cmd_vel.publish(rotate_cmd)
+                rospy.sleep(1)
+                new_odom_data = rospy.wait_for_message("/odom", Odometry)
+                current_heading = self.get_current_heading(new_odom_data)
+                err -= self.angle_difference(last_heading, current_heading)
+                last_heading = current_heading
 
-            move_cmd.angular.z = P + I + D 
-            move_cmd.linear.x = self.v          
-            prev_theta_error = err
+            self.cmd_vel.publish(stop)
+            rospy.sleep(1)
+
+            ## move forward
+            # move_cmd.linear.x = self.v * self.threshold / density if density != 0 else 2 * self.v
+            move_cmd.linear.x = self.v
+            self.cmd_vel.publish(move_cmd)
+            rospy.sleep(1) 
             
             self.r.sleep()
 
