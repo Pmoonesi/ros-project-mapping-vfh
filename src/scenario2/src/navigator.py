@@ -58,7 +58,7 @@ class NavigationController():
             sectors.append(sum(ranges[start:end]))
         return sectors
 
-    def get_smoothed_array(self, ranges, l):
+    def get_smooth_array(self, ranges, l):
         smooth = []
         for i in range(len(ranges)):
             weighted_sum = 0
@@ -67,9 +67,28 @@ class NavigationController():
             smooth.append(weighted_sum / (l + 1)**2)
         return smooth
 
-    def get_raw_target_heading(self, odom_data: Odometry, goal_x, goal_y):
+    def get_current_heading(self, msg: Odometry):
+        orientation = msg.pose.pose.orientation
+        roll, pitch, yaw = tf.transformations.euler_from_quaternion((
+            orientation.x ,orientation.y ,orientation.z ,orientation.w
+        )) 
+        return float("{:.2f}".format(yaw))
+
+    def get_target_heading(self, odom_data: Odometry, goal_x, goal_y):
         current_x, current_y, _ = odom_data.pose.pose.position
         return math.atan2((goal_y - current_y), (goal_x - current_x))
+
+    def angle_difference(self, current_heading, goal_heading):
+        if current_heading > 0:
+            sign = -1 if (current_heading - math.pi < goal_heading < current_heading) else +1
+        else:
+            sign = +1 if (current_heading + math.pi > goal_heading > current_heading) else -1
+        return sign * (math.pi - abs(abs(current_heading - goal_heading) - math.pi))
+
+    def get_relative_target_heading(self, odom_data: Odometry, goal_x, goal_y):
+        ch = self.get_current_heading(odom_data)
+        th = self.get_target_heading(odom_data, goal_x, goal_y)
+        return self.angle_difference(ch, th)
 
     ## convert radian to sector
     def get_target_sector(self, target_heading, sector_size):
@@ -82,16 +101,18 @@ class NavigationController():
         return int(target_degrees / sector_size - 0.5)
 
     ## convert sector to radian
-    def get_target_heading(self, sector):
-        pass
+    def get_relative_final_heading(self, sector, sector_size):
+        in_degrees = sector * sector_size
+        return in_degrees * math.pi / 180 if (in_degrees >= 0 and in_degrees < 180) else in_degrees * math.pi / 180 - 2 * math.pi
+
 
     def get_goal_heading_vfh(self, laser_data: LaserScan, odom_data: Odometry):
         ranges = laser_data.ranges
         m_ranges = self.get_range_values(ranges)
         density = self.get_polar_density(m_ranges, self.sector_size)
-        smooth = self.get_smoothed_array(density, self.l)
+        smooth = self.get_smooth_array(density, self.l)
 
-        target_heading = self.get_raw_target_heading(odom_data, self.goal_x, self.goal_y)
+        target_heading = self.get_relative_target_heading(odom_data, self.goal_x, self.goal_y)
         target_sector = self.get_target_sector(target_heading, self.sector_size)
 
         if smooth[target_sector] < self.threshold:
@@ -123,23 +144,9 @@ class NavigationController():
             dn = dn_l
             df = min(dn + self.s_max, df_l)
 
-        final_sector = (dn + df) / 2
-        return self.get_target_heading(final_sector)
-
-
-    def get_current_heading(self, msg: Odometry):
-        orientation = msg.pose.pose.orientation
-        roll, pitch, yaw = tf.transformations.euler_from_quaternion((
-            orientation.x ,orientation.y ,orientation.z ,orientation.w
-        )) 
-        return float("{:.2f}".format(yaw))
-
-    def angle_difference(self, current_heading, goal_heading):
-        if current_heading > 0:
-            sign = -1 if (current_heading - math.pi < goal_heading < current_heading) else +1
-        else:
-            sign = +1 if (current_heading + math.pi > goal_heading > current_heading) else -1
-        return sign * (math.pi - abs(abs(current_heading - goal_heading) - math.pi))
+        final_sector = ((dn + df) / 2 - 0.5) % le
+        return self.get_relative_final_heading(final_sector, self.sector_size)
+        
 
     def navigate(self):
 
@@ -156,10 +163,7 @@ class NavigationController():
             laser_data = rospy.wait_for_message("/scan", LaserScan)
             odom_data = rospy.wait_for_message("/odom", Odometry)
 
-            goal_heading = self.get_goal_heading_vfh(laser_data)
-            current_heading = self.get_current_heading(odom_data)
-            ## get current and goal heading and calc err
-            err = self.angle_difference(current_heading, goal_heading)
+            err = self.get_goal_heading_vfh(laser_data, odom_data)
 
             self.heading_errors.append(err)
                 
