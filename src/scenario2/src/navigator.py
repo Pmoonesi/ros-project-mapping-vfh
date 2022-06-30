@@ -23,19 +23,19 @@ class NavigationController():
         
         ## pid params
         self.k_i = 0
-        self.k_p = 0.6
-        self.k_d = 7
-        self.v = 0.6
+        self.k_p = 1
+        self.k_d = 10
+        self.v = 0.2
 
         ## vfh params
         self.a = 1
         self.b = 0.25
-        self.threshold = 3
+        self.threshold = 2.5
         self.s_max = 6
         self.l = 2
         self.sector_size = 5
 
-        self.dt = 0.05
+        self.dt = 0.1
         rate = 1 / self.dt
         self.r = rospy.Rate(rate)
         self.cmd_vel = rospy.Publisher('/cmd_vel', Twist, queue_size=5)
@@ -45,7 +45,7 @@ class NavigationController():
         return self.a - self.b * distance
 
     def get_range_values(self, ranges):
-        return [self.get_value(distance) for d in ranges]
+        return [self.get_value(d) for d in ranges]
 
     def get_polar_density(self, ranges, sector_size):
         sectors = []
@@ -63,7 +63,7 @@ class NavigationController():
         for i in range(len(ranges)):
             weighted_sum = 0
             for j in range(-l, l + 1):
-                weighted_sum += ((l + 1) - abs(j)) * ranges[i + j]
+                weighted_sum += ((l + 1) - abs(j)) * ranges[(i + j) % len(ranges)]
             smooth.append(weighted_sum / (l + 1)**2)
         return smooth
 
@@ -75,7 +75,8 @@ class NavigationController():
         return float("{:.2f}".format(yaw))
 
     def get_target_heading(self, odom_data: Odometry, goal_x, goal_y):
-        current_x, current_y, _ = odom_data.pose.pose.position
+        pos = odom_data.pose.pose.position
+        current_x, current_y = pos.x, pos.y
         return math.atan2((goal_y - current_y), (goal_x - current_x))
 
     def angle_difference(self, current_heading, goal_heading):
@@ -145,7 +146,9 @@ class NavigationController():
             df = min(dn + self.s_max, df_l)
 
         final_sector = ((dn + df) / 2 - 0.5) % le
-        return self.get_relative_final_heading(final_sector, self.sector_size)
+        final_heading = self.get_relative_final_heading(final_sector, self.sector_size)
+        print(f'relative target: {target_heading}\tfinal relative target: {final_heading}')
+        return final_heading
         
 
     def navigate(self):
