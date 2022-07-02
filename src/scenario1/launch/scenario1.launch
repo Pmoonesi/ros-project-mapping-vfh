@@ -55,8 +55,6 @@
         <remap from="scan" to="$(arg scan_topic)"/>
     </node>
 
-    <!-- <node pkg="scenario1" type="monitor.py" name="monitor"></node> -->
-
     <include file="$(find turtlebot_rviz_launchers)/launch/view_robot.launch"/>
    
 </launch>

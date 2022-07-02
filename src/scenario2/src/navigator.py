@@ -31,8 +31,8 @@ class NavigationController():
         ## vfh params
         self.a = 1
         self.b = 0.25
-        self.threshold = 1
-        self.s_max = 12
+        self.threshold = 2
+        self.s_max = 10
         self.l = 2
         self.sector_size = 5
 
@@ -40,6 +40,11 @@ class NavigationController():
         rate = 1 / self.dt
         self.r = rospy.Rate(rate)
         self.cmd_vel = rospy.Publisher('/cmd_vel', Twist, queue_size=5)
+
+    def get_distance_to_goal(self, odom_data: Odometry, goal_x, goal_y):
+        pos = odom_data.pose.pose.position
+        x, y = pos.x, pos.y
+        return math.sqrt((x - goal_x)**2 + (y - goal_y)**2)
 
     def get_value(self, distance):
         if distance == float('inf'): return 0
@@ -109,7 +114,6 @@ class NavigationController():
 
 
     def get_goal_heading_vfh(self, laser_data: LaserScan, odom_data: Odometry):
-        print("were here too")
         ranges = laser_data.ranges
         m_ranges = self.get_range_values(ranges)
         density = self.get_polar_density(m_ranges, self.sector_size)
@@ -158,9 +162,6 @@ class NavigationController():
 
     def navigate(self):
 
-        sum_i_theta = 0
-        prev_theta_error = 0
-
         move_cmd = Twist()
         move_cmd.angular.z = 0
 
@@ -176,13 +177,17 @@ class NavigationController():
 
             laser_data = rospy.wait_for_message("/scan", LaserScan)
             odom_data = rospy.wait_for_message("/odom", Odometry)
+            distance_to_goal = self.get_distance_to_goal(odom_data, self.goal_x, self.goal_y)
+
+            if distance_to_goal < 0.2:
+                print("reached the goal!")
+                break
 
             ## rotate
-            print("were defo here")
             err, density = self.get_goal_heading_vfh(laser_data, odom_data)
             last_heading = self.get_current_heading(odom_data)
 
-            while abs(err) > 0.25:
+            while abs(err) > 0.2:
                 rotate_cmd.angular.z = self.w if err > 0 else -self.w
                 print(f"error is {err} so we're rotating with {rotate_cmd.angular.z}")
                 self.cmd_vel.publish(rotate_cmd)
@@ -193,13 +198,15 @@ class NavigationController():
                 last_heading = current_heading
 
             self.cmd_vel.publish(stop)
-            rospy.sleep(1)
+            rospy.sleep(0.1)
 
             ## move forward
-            # move_cmd.linear.x = self.v * self.threshold / density if density != 0 else 2 * self.v
             move_cmd.linear.x = self.v
             self.cmd_vel.publish(move_cmd)
-            rospy.sleep(1) 
+            togo = (self.a - density / self.sector_size) / self.b if \
+                (self.a - density / self.sector_size) / self.b < distance_to_goal else distance_to_goal
+            t = 0.5 * togo / self.v
+            rospy.sleep(t) 
             
             self.r.sleep()
 
