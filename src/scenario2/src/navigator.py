@@ -203,10 +203,15 @@ class NavigationController():
             ## move forward
             move_cmd.linear.x = self.v
             self.cmd_vel.publish(move_cmd)
+
+            ## scaled time for moving forward
             togo = (self.a - density / self.sector_size) / self.b if \
                 (self.a - density / self.sector_size) / self.b < distance_to_goal else distance_to_goal
             t = 0.5 * togo / self.v
             rospy.sleep(t) 
+
+            ## move a little and look for target again
+            # rospy.sleep(1)
             
             self.r.sleep()
 
