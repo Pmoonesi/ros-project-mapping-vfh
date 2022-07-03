@@ -23,7 +23,7 @@ class PIDController():
         self.k_p = 3
         self.k_d = 22
 
-        self.v = 0.2
+        self.v = 0.1
         self.D = 0.5
 
         self.dt = 0.005
