@@ -21,10 +21,7 @@ class NavigationController():
         
         self.heading_errors = []
         
-        ## pid params
-        self.k_i = 0
-        self.k_p = 1
-        self.k_d = 10
+        ## velocity params
         self.v = 0.2
         self.w = 0.1
 
