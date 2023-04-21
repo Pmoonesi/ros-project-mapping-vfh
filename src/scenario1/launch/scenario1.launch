@@ -40,7 +40,7 @@
         <param name="stt" value="0.2"/>
         <param name="linearUpdate" value="1.0"/>
         <param name="angularUpdate" value="0.5"/>
-        <param name="temporalUpdate" value="-1.0"/>
+        <param name="temporalUpdate" value="1.0"/>
         <param name="resampleThreshold" value="0.5"/>
         <param name="particles" value="30"/>
         <param name="xmin" value="-100"/>
@@ -54,8 +54,6 @@
         <param name="lasamplestep" value="0.005"/>
         <remap from="scan" to="$(arg scan_topic)"/>
     </node>
-
-    <!-- <node pkg="scenario1" type="monitor.py" name="monitor"></node> -->
 
     <include file="$(find turtlebot_rviz_launchers)/launch/view_robot.launch"/>
    

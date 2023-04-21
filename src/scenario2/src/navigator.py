@@ -26,12 +26,13 @@ class NavigationController():
         self.k_p = 1
         self.k_d = 10
         self.v = 0.2
+        self.w = 0.1
 
         ## vfh params
         self.a = 1
         self.b = 0.25
-        self.threshold = 2.5
-        self.s_max = 6
+        self.threshold = 2
+        self.s_max = 10
         self.l = 2
         self.sector_size = 5
 
@@ -39,6 +40,11 @@ class NavigationController():
         rate = 1 / self.dt
         self.r = rospy.Rate(rate)
         self.cmd_vel = rospy.Publisher('/cmd_vel', Twist, queue_size=5)
+
+    def get_distance_to_goal(self, odom_data: Odometry, goal_x, goal_y):
+        pos = odom_data.pose.pose.position
+        x, y = pos.x, pos.y
+        return math.sqrt((x - goal_x)**2 + (y - goal_y)**2)
 
     def get_value(self, distance):
         if distance == float('inf'): return 0
@@ -116,11 +122,14 @@ class NavigationController():
         target_heading = self.get_relative_target_heading(odom_data, self.goal_x, self.goal_y)
         target_sector = self.get_target_sector(target_heading, self.sector_size)
 
+        print(f'target sector: {target_sector} density: {smooth[target_sector]}')
+
         if smooth[target_sector] < self.threshold:
-            return target_heading
+            return target_heading, smooth[target_sector]
 
         if all(density >= self.threshold for density in smooth) == True:
-            return target_heading
+            print("threshold alert")
+            return target_heading, self.threshold
 
         ## select best heading
         le = len(smooth)
@@ -148,37 +157,61 @@ class NavigationController():
         final_sector = ((dn + df) / 2 - 0.5) % le
         final_heading = self.get_relative_final_heading(final_sector, self.sector_size)
         print(f'relative target: {target_heading}\tfinal relative target: {final_heading}')
-        return final_heading
+        return final_heading, smooth[int(final_sector)]
         
 
     def navigate(self):
 
-        sum_i_theta = 0
-        prev_theta_error = 0
-
         move_cmd = Twist()
         move_cmd.angular.z = 0
-        move_cmd.linear.x = self.v
+
+        stop = Twist()
+        stop.angular.z = 0
+        stop.linear.x = 0
+
+        rotate_cmd = Twist()
+        rotate_cmd.linear.x = 0
         
         while not rospy.is_shutdown():
-            self.cmd_vel.publish(move_cmd)
+            self.cmd_vel.publish(stop)
 
             laser_data = rospy.wait_for_message("/scan", LaserScan)
             odom_data = rospy.wait_for_message("/odom", Odometry)
+            distance_to_goal = self.get_distance_to_goal(odom_data, self.goal_x, self.goal_y)
 
-            err = self.get_goal_heading_vfh(laser_data, odom_data)
+            if distance_to_goal < 0.2:
+                print("reached the goal!")
+                break
 
-            self.heading_errors.append(err)
-                
-            sum_i_theta += err * self.dt
-            
-            P = self.k_p * err
-            I = self.k_i * sum_i_theta
-            D = self.k_d * (err - prev_theta_error)
+            ## rotate
+            err, density = self.get_goal_heading_vfh(laser_data, odom_data)
+            last_heading = self.get_current_heading(odom_data)
 
-            move_cmd.angular.z = P + I + D 
-            move_cmd.linear.x = self.v          
-            prev_theta_error = err
+            while abs(err) > 0.2:
+                rotate_cmd.angular.z = self.w if err > 0 else -self.w
+                print(f"error is {err} so we're rotating with {rotate_cmd.angular.z}")
+                self.cmd_vel.publish(rotate_cmd)
+                rospy.sleep(1)
+                new_odom_data = rospy.wait_for_message("/odom", Odometry)
+                current_heading = self.get_current_heading(new_odom_data)
+                err -= self.angle_difference(last_heading, current_heading)
+                last_heading = current_heading
+
+            self.cmd_vel.publish(stop)
+            rospy.sleep(0.1)
+
+            ## move forward
+            move_cmd.linear.x = self.v
+            self.cmd_vel.publish(move_cmd)
+
+            ## scaled time for moving forward
+            togo = (self.a - density / self.sector_size) / self.b if \
+                (self.a - density / self.sector_size) / self.b < distance_to_goal else distance_to_goal
+            t = 0.5 * togo / self.v
+            rospy.sleep(t) 
+
+            ## move a little and look for target again
+            # rospy.sleep(1)
             
             self.r.sleep()
 

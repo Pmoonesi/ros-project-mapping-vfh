@@ -10,9 +10,8 @@
         <arg name="x_pos" value="0.0"/>  
         <arg name="y_pos" value="8.0"/>   
         <arg name="z_pos" value="0.0"/>
+        <arg name="yaw" value="0.0"/>
     </include>
-
-    <!-- <node pkg="scenario2" type="monitor.py" name="monitor"></node> -->
 
     <include file="$(find turtlebot_rviz_launchers)/launch/view_robot.launch"/>
    
